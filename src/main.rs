@@ -15,25 +15,41 @@
 
 //! This crate implements droidfoodattestation_server
 
+use android_logger::FilterBuilder;
 use log::{error, info};
 use std::panic;
 
-use droidfoodattestation::KeystoreCertificatePostProcessor;
-
-use android_security_postprocessor::aidl::android::security::postprocessor::{
-    IKeystoreCertificatePostProcessor::BnKeystoreCertificatePostProcessor
+use droidfoodattestation::{
+    initialize_hardening_stage_key_recovery, KeystoreCertificatePostProcessor,
+    INTENSIVE_LOGS_ENABLED,
 };
 
-use android_security_postprocessor::binder::BinderFeatures;
+use android_security_postprocessor::aidl::android::security::postprocessor::{
+    IKeystoreCertificatePostProcessor::BnKeystoreCertificatePostProcessor,
+};
+
+use binder::binder_impl::Binder;
+use binder::BinderFeatures;
+use mystic_attestation_provisioner::aidl::mystic::attestation::provisioner::IBackendAttestationKeyProvisioner::BnBackendAttestationKeyProvisioner;
 
 static SERVICE_NAME: &str = "rkp_cert_processor.service";
 
 fn main() {
+    let mut log_filter = FilterBuilder::new();
+    log_filter.filter(None, log::LevelFilter::Info);
+    if INTENSIVE_LOGS_ENABLED {
+        log_filter.filter(Some("droidfoodattestation"), log::LevelFilter::Debug);
+    }
+
+    let log_level =
+        if INTENSIVE_LOGS_ENABLED { log::LevelFilter::Debug } else { log::LevelFilter::Info };
+
     // Initialize android logging
     android_logger::init_once(
         android_logger::Config::default()
             .with_tag("droidfood_attestation")
-            .with_max_level(log::LevelFilter::Trace),
+            .with_filter(log_filter.build())
+            .with_max_level(log_level),
     );
 
     // Redirect panic messages to logcat
@@ -43,12 +59,29 @@ fn main() {
 
     info!("{SERVICE_NAME} starting up");
 
-    let post_processor = KeystoreCertificatePostProcessor;
-    let post_processor_binder =
-        BnKeystoreCertificatePostProcessor::new_binder(post_processor, BinderFeatures::default());
+    if !initialize_hardening_stage_key_recovery() {
+        error!("optional runtime stage key recovery failed; runtime stage is disabled");
+    }
 
-    binder::register_lazy_service(SERVICE_NAME, post_processor_binder.as_binder())
-        .expect("Failed to register keystore post processor");
+    let provisioner = KeystoreCertificatePostProcessor;
+    let provisioner_binder =
+        BnBackendAttestationKeyProvisioner::new_binder(provisioner, BinderFeatures::default());
+
+    let post_processor = KeystoreCertificatePostProcessor;
+    let mut post_processor_binder = Binder::<BnKeystoreCertificatePostProcessor>::try_from(
+        BnKeystoreCertificatePostProcessor::new_binder(post_processor, BinderFeatures::default())
+            .as_binder(),
+    )
+    .expect("Failed to recover local keystore post processor binder");
+    post_processor_binder
+        .set_extension(&mut provisioner_binder.as_binder())
+        .expect("Failed to attach attestation-key provisioner extension");
+
+    binder::register_lazy_service(
+        SERVICE_NAME,
+        binder::Interface::as_binder(&post_processor_binder),
+    )
+    .expect("Failed to register keystore post processor");
 
     binder::ProcessState::join_thread_pool();
 }

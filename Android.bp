@@ -18,30 +18,107 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
-// Flag definitions
-aconfig_declarations {
-    name: "droidfood_attestation_flags",
-    package: "android.security.postprocessor",
-    container: "system_ext",
-    srcs: ["droidfood_attestation_flags.aconfig"],
+aidl_interface {
+    name: "mystic.attestation.provisioner",
+    local_include_dir: "aidl",
+    srcs: [
+        "aidl/mystic/attestation/provisioner/AttestationKeyCertificateProfile.aidl",
+        "aidl/mystic/attestation/provisioner/HardeningStageContext.aidl",
+        "aidl/mystic/attestation/provisioner/HardeningStageResult.aidl",
+        "aidl/mystic/attestation/provisioner/IBackendAttestationKeyProvisioner.aidl",
+        "aidl/mystic/attestation/provisioner/ProvisionedAttestationKey.aidl",
+        "aidl/mystic/attestation/provisioner/ProtectedStageCompletion.aidl",
+    ],
+    unstable: true,
+    backend: {
+        cpp: {
+            enabled: false,
+        },
+        java: {
+            enabled: false,
+        },
+        ndk: {
+            enabled: false,
+        },
+        rust: {
+            enabled: true,
+        },
+    },
 }
 
-rust_aconfig_library {
-    name: "libdroidfood_attestation_flags_rust",
-    crate_name: "droidfood_attestation_flags",
-    aconfig_declarations: "droidfood_attestation_flags",
+rust_protobuf {
+    name: "libdroidfood_attestation_proto_rust",
+    crate_name: "droidfood_attestation_proto",
+    source_stem: "droidfood_attestation_proto",
+    protos: ["proto/overwrite.proto"],
+}
+
+rust_protobuf {
+    name: "libmystic_hardening_proto_rust",
+    crate_name: "mystic_hardening_proto",
+    source_stem: "mystic_hardening_proto",
+    protos: ["proto/hardening.proto"],
+}
+
+rust_library {
+    name: "libtonic_mystic",
+    crate_name: "tonic",
+    crate_root: "grpc-rust/tonic/src/lib.rs",
+    cargo_env_compat: true,
+    cargo_pkg_version: "0.14.6",
+    edition: "2024",
+
+    clippy_lints: "none",
+
+    features: [
+        "_tls-any",
+        "channel",
+        "tls-connect-info",
+        "tls-native-roots",
+        "tls-aws-lc",
+    ],
+
+    rustlibs: [
+        "libbase64_rust",
+        "libbytes",
+        "libhttp",
+        "libhttp_body",
+        "libhttp_body_util",
+        "libhyper",
+        "libhyper_timeout",
+        "libhyper_util",
+        "libpercent_encoding",
+        "libpin_project",
+        "librustls_native_certs",
+        "libsync_wrapper",
+        "libtokio",
+        "libtokio_rustls",
+        "libtokio_stream",
+        "libtokio_util",
+        "libtower",
+        "libtower_layer",
+        "libtower_service",
+        "libtracing",
+    ],
+    min_sdk_version: "29",
 }
 
 rust_dependencies = [
     "android.security.postprocessor-rust",
     "libandroid_logger",
     "libbinder_rs",
-    "libcxx",
     "liblog_rust",
-    "libbase64_rust",
-    "libserde_json",
+    "libopenssl",
+    "libbytes",
+    "libhttp",
+    "libprotobuf",
+    "libtokio",
+    "libtonic_mystic",
+    "librustutils",
     "libuuid",
-    "libdroidfood_attestation_flags_rust",
+    "libdroidfood_attestation_proto_rust",
+    "libmystic_hardening_proto_rust",
+    "mystic.attestation.provisioner-rust",
 ]
 
 rust_library {
@@ -49,14 +126,30 @@ rust_library {
     crate_name: "droidfoodattestation",
     srcs: ["src/lib.rs"],
     rustlibs: rust_dependencies,
-    shared_libs: [
-        "libcurl",
-        "liblog",
+    static_libs: [
+        "libcutils",
+        "libclang_rt.ubsan_minimal",
     ],
-    whole_static_libs: ["libdroidfood_attestation_curl"],
     defaults: [
         "keymint_use_latest_hal_aidl_rust",
+        "keystore2_use_latest_aidl_rust",
     ],
+}
+
+rust_test {
+    name: "droidfoodattestation_tests",
+    crate_name: "droidfoodattestation_tests",
+    srcs: ["src/lib.rs"],
+    rustlibs: rust_dependencies,
+    static_libs: [
+        "libcutils",
+        "libclang_rt.ubsan_minimal",
+    ],
+    defaults: [
+        "keymint_use_latest_hal_aidl_rust",
+        "keystore2_use_latest_aidl_rust",
+    ],
+    test_suites: ["general-tests"],
 }
 
 rust_binary {
@@ -65,7 +158,7 @@ rust_binary {
     srcs: ["src/main.rs"],
     init_rc: ["droidfoodattestation.rc"],
     rustlibs: rust_dependencies + ["libdroidfoodattestation"],
-    prefer_rlib: true, // To avoid dynamic link error.
+    prefer_rlib: true,
     bootstrap: true,
     system_ext_specific: true,
 }
@@ -76,40 +169,4 @@ prebuilt_etc {
     filename: "init.rc",
     installable: true,
     system_ext_specific: true,
-}
-
-cc_library_static {
-    name: "libdroidfood_attestation_curl",
-    defaults: ["rust_static_cc_lib_defaults"],
-    srcs: [
-        "src/curl/http_client.cpp",
-    ],
-    local_include_dirs: [
-        "src/curl",
-    ],
-    shared_libs: [
-        "libcurl",
-        "liblog",
-    ],
-    generated_headers: [
-        "droidfood_attestation_cxx_bridge_header",
-        "cxx-bridge-header",
-    ],
-    generated_sources: ["droidfood_attestation_cxx_bridge_code"],
-}
-
-genrule {
-    name: "droidfood_attestation_cxx_bridge_header",
-    tools: ["cxxbridge"],
-    cmd: "$(location cxxbridge) $(in) --header > $(out)",
-    srcs: ["src/lib.rs"],
-    out: ["lib.rs.h"],
-}
-
-genrule {
-    name: "droidfood_attestation_cxx_bridge_code",
-    tools: ["cxxbridge"],
-    cmd: "$(location cxxbridge) $(in) >> $(out)",
-    srcs: ["src/lib.rs"],
-    out: ["lib_generated.cc"],
 }

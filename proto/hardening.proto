@@ -1,0 +1,251 @@
+syntax = "proto3";
+
+package mystic.attestation.hardening.v1;
+
+option go_package = "attestation-project/internal/wire;wire";
+
+service HardeningRuntime {
+  rpc PrepareWrappingKey(WrappingKeyPreparationRequestV1) returns (WrappingKeyPreparationChallengeV1);
+  rpc RegisterWrappingKey(WrappingKeyRegistrationRequestV1) returns (RegisteredWrappingKeyV1);
+  rpc BeginSession(HardeningBeginRequestV1) returns (HardeningChallengeV1);
+  rpc RedeemGrant(HardeningRedeemRequestV1) returns (HardeningGrantV1);
+  rpc ConsumeGrant(GrantConsumptionV1) returns (GrantTransitionV1);
+  rpc CompleteProtectedStage(ProtectedStageCompletionV1) returns (ProtectedStageCompletionResultV1);
+}
+
+enum HardeningCryptoNamespaceV1 {
+  HARDENING_CRYPTO_NAMESPACE_UNSPECIFIED = 0;
+  HARDENING_CRYPTO_NAMESPACE_RELEASE = 1;
+  HARDENING_CRYPTO_NAMESPACE_DEBUG = 2;
+}
+
+// HardeningContextV1 commits one optional Mystic operation to its registered
+// build, stable device identity, request, output, and execution stage.
+message HardeningContextV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string build_id = 4;
+  bytes payload_sha256 = 5;
+  bytes processor_sha256 = 6;
+  bytes profile_config_sha256 = 7;
+  uint32 vm_schema_version = 8;
+
+  bytes device_identity_spki_sha256 = 9;
+  uint32 caller_uid = 10;
+  string security_level = 11;
+  uint64 runtime_epoch = 12;
+
+  uint32 purpose = 13;
+  uint32 route_id = 14;
+  uint32 stage_id = 15;
+
+  bytes request_sha256 = 16;
+  bytes response_sha256 = 17;
+  bytes attestation_challenge_sha256 = 18;
+  bytes attestation_key_spki_sha256 = 19;
+
+  bytes previous_receipt = 20;
+  bytes voucher = 21;
+  string idempotency_key = 22;
+  string wrapping_key_id = 23;
+  bytes latent_binding = 24;
+  bytes recovery_selector = 25;
+}
+
+// WrappingKeyPoolScopeV1 binds one one-use wrapping key to its device and
+// runtime build. The idempotency key applies only to preparation retries.
+message WrappingKeyPoolScopeV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string build_id = 4;
+  bytes payload_sha256 = 5;
+  bytes processor_sha256 = 6;
+  bytes profile_config_sha256 = 7;
+  uint32 vm_schema_version = 8;
+
+  bytes device_identity_spki_sha256 = 9;
+  string security_level = 10;
+  uint64 runtime_epoch = 11;
+  HardeningCryptoNamespaceV1 crypto_namespace = 12;
+  string idempotency_key = 13;
+}
+
+message WrappingKeyPreparationRequestV1 {
+  WrappingKeyPoolScopeV1 scope = 1;
+  repeated bytes device_identity_chain = 2;
+  bytes device_identity_signature = 3;
+}
+
+message WrappingKeyPreparationChallengeV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string wrapping_key_id = 4;
+  bytes wrapping_attestation_challenge = 5;
+  int64 server_expires_at_ms = 6;
+  uint64 policy_epoch = 7;
+  HardeningCryptoNamespaceV1 crypto_namespace = 8;
+  uint32 crypto_suite = 9;
+}
+
+message WrappingKeyRegistrationRequestV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string wrapping_key_id = 4;
+  repeated bytes wrapping_key_chain = 5;
+  string idempotency_key = 6;
+}
+
+message RegisteredWrappingKeyV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string wrapping_key_id = 4;
+  int64 server_expires_at_ms = 5;
+  uint64 policy_epoch = 6;
+  HardeningCryptoNamespaceV1 crypto_namespace = 7;
+  uint32 crypto_suite = 8;
+}
+
+message HardeningBeginRequestV1 {
+  HardeningContextV1 context = 1;
+
+  // This is the persistent hardware identity key chain. Its leaf attestation
+  // challenge is the existing Mystic persistent-device-identity v2 challenge.
+  repeated bytes device_identity_chain = 2;
+
+  // ECDSA/SHA-256 proof by the leaf P-256 key over the canonical begin digest.
+  bytes device_identity_signature = 3;
+}
+
+message HardeningChallengeV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  bytes server_nonce = 6;
+  bytes wrapping_attestation_challenge = 7;
+  int64 server_expires_at_ms = 8;
+  uint64 policy_epoch = 9;
+  uint64 grant_generation = 10;
+  HardeningCryptoNamespaceV1 crypto_namespace = 11;
+  uint32 crypto_suite = 12;
+  string wrapping_key_id = 13;
+  bytes recovery_selector = 14;
+  int64 recovery_expires_at_ms = 15;
+}
+
+message HardeningRedeemRequestV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  repeated bytes wrapping_key_chain = 6;
+  bytes transcript_sha256 = 7;
+  string idempotency_key = 8;
+}
+
+message HardeningGrantV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  bytes secure_key_wrapper = 6;
+  bytes sealed_payload = 7;
+  bytes receipt = 8;
+  bytes receipt_metadata = 9;
+  int64 server_expires_at_ms = 10;
+  uint64 policy_epoch = 11;
+  bytes transcript_sha256 = 12;
+  uint64 grant_generation = 13;
+  HardeningCryptoNamespaceV1 crypto_namespace = 14;
+  uint32 crypto_suite = 15;
+}
+
+message GrantConsumptionV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  bytes transcript_sha256 = 6;
+  bytes next_transition_sha256 = 7;
+  bytes consume_proof = 8;
+  string idempotency_key = 9;
+}
+
+message GrantTransitionV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  bytes receipt = 6;
+  bytes next_voucher = 7;
+  bytes opaque_continuation = 8;
+  bytes authorized_payload = 9;
+  int64 server_expires_at_ms = 10;
+  uint64 policy_epoch = 11;
+  HardeningCryptoNamespaceV1 crypto_namespace = 12;
+  uint32 crypto_suite = 13;
+
+  // This fixed-size opaque result is present only after an eligible completed
+  // functional transition. The processor must store it only in volatile
+  // runtime state and must not interpret its contents.
+  bytes auxiliary_capsule = 14;
+}
+
+// ProtectedStageCompletionV1 records a completed protected VM stage after the
+// native runtime has verified and executed its server-sealed bundle. It is
+// never a browser request.
+message ProtectedStageCompletionV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  string session_id = 4;
+  string grant_id = 5;
+  bytes context_sha256 = 6;
+  bytes receipt = 7;
+  bytes next_voucher = 8;
+  // This exact one-use value is available only after successful stage-3 VM
+  // execution. The backend stores and compares only its SHA-256 value.
+  bytes completion_token = 9;
+  repeated bytes device_identity_chain = 10;
+  bytes device_identity_signature = 11;
+}
+
+// ProtectedStageCompletionResultV1 returns only whether the server committed
+// the exact completion. It returns no continuation authority.
+message ProtectedStageCompletionResultV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+  int64 server_expires_at_ms = 4;
+}
+
+// LatentEventCapsuleV1 defines the opaque fixed-shape result format. Its
+// contents are server-selected and are not a client policy signal.
+message LatentEventCapsuleV1 {
+  uint32 schema_version = 1;
+  uint32 protocol_major = 2;
+  uint32 protocol_minor = 3;
+
+  bytes opaque_capsule = 4;
+}
